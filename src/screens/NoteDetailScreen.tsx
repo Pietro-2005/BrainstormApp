@@ -10,13 +10,14 @@ import { Banner } from '../components/Banner'
 import { Icon } from '../components/Icon'
 import { TagEditor } from '../components/TagEditor'
 import { AutoTextarea, TranscriptEditor } from '../components/TranscriptEditor'
-import { ProgressBar, dangerButton, inputClass, primaryButton, secondaryButton } from '../components/Form'
+import { ProgressBar, dangerButton, inputClass, secondaryButton } from '../components/Form'
 import { fileExtensionForMime, formatDateTime, formatDuration } from '../lib/format'
 import { segmentsToText } from '../lib/transcript'
 import { transcription, useTranscriptionState } from '../lib/transcription'
 import { useAutosave } from '../lib/useAutosave'
-import { noteFilename, renderNote } from '../lib/template'
-import { copyText, downloadBlob } from '../lib/files'
+import { noteFilename } from '../lib/template'
+import { downloadBlob } from '../lib/files'
+import { SendActions } from '../components/SendActions'
 import { languageName } from '../lib/languages'
 import { allTags } from '../lib/search'
 import { showToast } from '../lib/toast'
@@ -73,19 +74,6 @@ function NoteEditor({ note }: { note: Note }) {
     save({ text: value })
   }
 
-  const markdown = () => renderNote(settings?.template ?? '', exportable)
-
-  const onCopy = async () => {
-    try {
-      await copyText(markdown())
-      showToast({ tone: 'success', message: 'Copied as Markdown.' })
-    } catch (err) {
-      showToast({ tone: 'error', message: (err as Error).message })
-    }
-  }
-  const onDownload = () => {
-    downloadBlob(new Blob([markdown()], { type: 'text/markdown;charset=utf-8' }), noteFilename(exportable))
-  }
   const onDownloadAudio = async () => {
     const blob = await getNoteAudio(note.id)
     if (blob) downloadBlob(blob, noteFilename(exportable, fileExtensionForMime(blob.type)))
@@ -192,14 +180,7 @@ function NoteEditor({ note }: { note: Note }) {
           )}
         </section>
 
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => void onCopy()} disabled={busy} className={primaryButton}>
-            <Icon name="copy" className="size-4" /> Copy
-          </button>
-          <button type="button" onClick={onDownload} disabled={busy} className={secondaryButton}>
-            <Icon name="download" className="size-4" /> Download .md
-          </button>
-        </div>
+        {settings && <SendActions note={exportable} settings={settings} disabled={busy} />}
 
         <details className="group rounded-xl bg-white shadow-sm ring-1 ring-stone-200/60 dark:bg-stone-900 dark:ring-stone-800">
           <summary className="flex cursor-pointer list-none items-center justify-between p-4 text-sm font-medium">

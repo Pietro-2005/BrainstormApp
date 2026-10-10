@@ -21,7 +21,7 @@ export function Banner({
 }) {
   return (
     <div role={tone === 'error' ? 'alert' : 'status'} className={`flex items-start gap-3 rounded-xl p-3 text-sm ring-1 ${tones[tone]}`}>
-      <Icon name={tone === 'success' ? 'check' : 'alert'} className="mt-0.5 size-4 shrink-0" />
+      <Icon name={tone === 'success' ? 'check' : tone === 'info' ? 'info' : 'alert'} className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1 space-y-2">
         <div>{message}</div>
         {action}

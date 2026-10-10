@@ -9,6 +9,7 @@ import { SettingsScreen } from './screens/SettingsScreen'
 import { recoverUnfinishedRecordings } from './lib/recorder'
 import { showToast } from './lib/toast'
 import { transcription } from './lib/transcription'
+import { sendQueue } from './lib/send'
 
 let started = false
 
@@ -18,6 +19,7 @@ async function onAppStart() {
   started = true
   const recovered = await recoverUnfinishedRecordings()
   transcription.start()
+  sendQueue.start()
   if (recovered > 0) {
     showToast(
       {

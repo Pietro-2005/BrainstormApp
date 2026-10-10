@@ -9,6 +9,10 @@ import { allTags, filterNotes, snippet } from '../lib/search'
 import { formatDuration, formatRelativeDate } from '../lib/format'
 import { importAudioFile } from '../lib/recorder'
 import { showToast } from '../lib/toast'
+import { useSendState } from '../lib/send'
+import { useSettings } from '../db/settings'
+import { Banner } from '../components/Banner'
+import { connectGoogle } from '../components/SendSettings'
 
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -35,6 +39,9 @@ export function NotesScreen() {
   const [importing, setImporting] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const deferredQuery = useDeferredValue(query)
+  const queued = useLiveQuery(() => db.sendQueue.count(), [], 0)
+  const send = useSendState()
+  const settings = useSettings()
 
   const tags = useMemo(() => allTags(notes ?? []), [notes])
   const visible = useMemo(
@@ -110,6 +117,19 @@ export function NotesScreen() {
         </div>
       </div>
 
+      {queued > 0 && send.needsAuth && settings && (
+        <div className="mb-3">
+          <Banner
+            tone="info"
+            message={`${queued} note${queued > 1 ? 's are' : ' is'} waiting to be sent to your Google Doc inbox.`}
+            action={
+              <button type="button" className="font-semibold underline" onClick={() => void connectGoogle(settings.googleClientId)}>
+                Connect Google to send
+              </button>
+            }
+          />
+        </div>
+      )}
       {notes?.length === 0 && (
         <div className="flex flex-col items-center gap-3 pt-16 text-center text-stone-500 dark:text-stone-400">
           <Icon name="mic" className="size-10 text-stone-300 dark:text-stone-600" />
