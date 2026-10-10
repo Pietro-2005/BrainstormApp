@@ -12,6 +12,8 @@ export interface Settings {
   model: ModelSize
   /** 'auto' or a Whisper language code such as 'en' or 'it'. */
   language: string
+  /** Run the Whisper encoder on WebGPU when the device has it. */
+  useGpu: boolean
   googleClientId: string
   inboxName: string
   monthlyInbox: boolean
@@ -25,6 +27,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // whisper-small can run a phone out of memory, so phones start on base.
   model: isMobile ? 'base' : 'small',
   language: 'auto',
+  useGpu: true,
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '',
   inboxName: 'Voice Notes Inbox',
   monthlyInbox: false,

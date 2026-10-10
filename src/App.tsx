@@ -8,6 +8,7 @@ import { NoteDetailScreen } from './screens/NoteDetailScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { recoverUnfinishedRecordings } from './lib/recorder'
 import { showToast } from './lib/toast'
+import { transcription } from './lib/transcription'
 
 let started = false
 
@@ -16,6 +17,7 @@ async function onAppStart() {
   if (started) return
   started = true
   const recovered = await recoverUnfinishedRecordings()
+  transcription.start()
   if (recovered > 0) {
     showToast(
       {
