@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { HashRouter, Route, Routes } from 'react-router'
+import { HashRouter, Route, Routes, useLocation } from 'react-router'
 import { TabBar } from './components/Layout'
 import { Toasts } from './components/Toasts'
 import { RecordScreen } from './screens/RecordScreen'
@@ -10,6 +10,10 @@ import { recoverUnfinishedRecordings } from './lib/recorder'
 import { showToast } from './lib/toast'
 import { transcription } from './lib/transcription'
 import { sendQueue } from './lib/send'
+import { requestPersistentStorage } from './lib/storage'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { UpdatePrompt } from './components/UpdatePrompt'
+import './lib/install'
 
 let started = false
 
@@ -17,6 +21,7 @@ let started = false
 async function onAppStart() {
   if (started) return
   started = true
+  void requestPersistentStorage()
   const recovered = await recoverUnfinishedRecordings()
   transcription.start()
   sendQueue.start()
@@ -32,6 +37,22 @@ async function onAppStart() {
   }
 }
 
+function AppRoutes() {
+  const location = useLocation()
+  // Keyed by path so an error on one screen doesn't block the others.
+  return (
+    <ErrorBoundary key={location.pathname}>
+      <Routes>
+        <Route path="/" element={<RecordScreen />} />
+        <Route path="/notes" element={<NotesScreen />} />
+        <Route path="/notes/:id" element={<NoteDetailScreen />} />
+        <Route path="/settings" element={<SettingsScreen />} />
+        <Route path="*" element={<RecordScreen />} />
+      </Routes>
+    </ErrorBoundary>
+  )
+}
+
 // Hash routing keeps deep links working on GitHub Pages, which has no SPA fallback.
 export default function App() {
   useEffect(() => {
@@ -40,13 +61,8 @@ export default function App() {
   return (
     <HashRouter>
       <Toasts />
-      <Routes>
-        <Route path="/" element={<RecordScreen />} />
-        <Route path="/notes" element={<NotesScreen />} />
-        <Route path="/notes/:id" element={<NoteDetailScreen />} />
-        <Route path="/settings" element={<SettingsScreen />} />
-        <Route path="*" element={<RecordScreen />} />
-      </Routes>
+      <UpdatePrompt />
+      <AppRoutes />
       <TabBar />
     </HashRouter>
   )
