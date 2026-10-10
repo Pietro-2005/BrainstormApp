@@ -14,7 +14,7 @@ One-tap voice notes, transcribed **on your device** with Whisper, sent to a Clau
 
 Transformers.js runs Whisper in a worker (`src/workers/transcriber.worker.ts`). Before transcribing, long silences are trimmed by an energy check and the audio is cut into ≤ 30 s windows at quiet points (`src/lib/audio-plan.ts`). Timestamps are then mapped back to the original recording. This gives a real progress bar and avoids Whisper inventing text during silence. Repeated lines and non-speech tags are cleaned up afterwards (`src/lib/transcript.ts`).
 
-Three things differ from the plan, because the plan's version didn't work as written:
+Four things differ from the plan, because the plan's version didn't work as written:
 
 - **Language auto-detect.** Transformers.js silently treats "auto" as English, so the worker detects the language itself with one decoder step.
 - **Chunking.** The pipeline's built-in `chunk_length_s`/`stride_length_s` has no progress reporting, so the app does its own silence-aware windowing.
