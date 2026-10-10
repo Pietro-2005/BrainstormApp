@@ -3,7 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { DEFAULT_TEMPLATE, saveSettings, type Settings } from '../db/settings'
 import { docUrl, loadGoogleIdentity, onTokenChange, requestToken, revokeToken, tokenExpiresAt } from '../lib/google'
-import { inboxTitle, sendQueue, useSendState } from '../lib/send'
+import { inboxTitle, sendQueue, usesAppsScript, useSendState } from '../lib/send'
+import { SCRIPT_URL_RE, ScriptError, newSecret, scriptSource } from '../lib/appsScript'
+import { copyText } from '../lib/files'
 import { renderNote } from '../lib/template'
 import { showToast } from '../lib/toast'
 import { Field, Section, Toggle, inputClass, primaryButton, secondaryButton } from './Form'
@@ -28,75 +30,106 @@ export async function connectGoogle(clientId: string): Promise<boolean> {
 }
 
 export function GoogleSettings({ settings }: { settings: Settings }) {
-  const connectedUntil = useGoogleConnection()
   const send = useSendState()
   const queued = useLiveQuery(() => db.sendQueue.count(), [], 0)
-  const [clientId, setClientId] = useState(settings.googleClientId)
-  const hasClientId = settings.googleClientId.trim().length > 0
+  const [scriptUrl, setScriptUrl] = useState(settings.appsScriptUrl)
+  const [testing, setTesting] = useState(false)
   const docs = Object.entries(settings.inboxDocs)
   const currentTitle = inboxTitle(settings)
+  const urlValid = !scriptUrl.trim() || SCRIPT_URL_RE.test(scriptUrl.trim())
 
   useEffect(() => {
-    // Load Google's script ahead of the tap so the sign-in popup isn't blocked.
-    if (hasClientId) loadGoogleIdentity().catch(() => {})
-  }, [hasClientId])
+    // Every install gets its own secret, embedded in the script the user copies.
+    if (!settings.inboxSecret) void saveSettings({ inboxSecret: newSecret() })
+  }, [settings.inboxSecret])
+
+  const onCopyScript = async () => {
+    try {
+      await copyText(scriptSource(settings.inboxSecret))
+      showToast({ tone: 'success', message: 'Script copied. Paste it into the Apps Script editor.' })
+    } catch (err) {
+      showToast({ tone: 'error', message: (err as Error).message })
+    }
+  }
+
+  const saveUrl = async () => {
+    const url = scriptUrl.trim()
+    if (url !== settings.appsScriptUrl) await saveSettings({ appsScriptUrl: url })
+  }
+
+  const onTest = async () => {
+    await saveUrl()
+    setTesting(true)
+    try {
+      const result = await sendQueue.testScript()
+      showToast({ tone: 'success', message: `Connected. “${currentTitle}” is ready in your Google Drive.` })
+      if (result.docUrl) void sendQueue.flush()
+    } catch (err) {
+      showToast({
+        tone: 'error',
+        message:
+          err instanceof ScriptError
+            ? err.message
+            : 'Could not reach the script. Check the URL, and that the deployment’s access is “Anyone”.',
+      })
+    } finally {
+      setTesting(false)
+    }
+  }
 
   return (
     <Section
       title="Google Doc inbox"
-      description="Each sent note is appended to one Google Doc. Add that doc to your Claude project once and the project stays in sync."
+      description="Each sent note is appended to one Google Doc in your Drive. Add that doc to your Claude project once and the project stays in sync."
     >
-      <Field
-        label="OAuth Client ID"
-        hint={
-          <details>
-            <summary className="cursor-pointer">How do I get one?</summary>
-            <ol className="mt-2 list-decimal space-y-1 pl-4">
-              <li>console.cloud.google.com → create a project.</li>
-              <li>APIs &amp; Services → Library → enable “Google Docs API”.</li>
-              <li>OAuth consent screen: External, Testing, add your Google account as a test user.</li>
-              <li>
-                Credentials → Create credentials → OAuth client ID → Web application. Authorized JavaScript origins: <code>{location.origin}</code>
-              </li>
-              <li>Paste the Client ID here. It is not a secret.</li>
-            </ol>
-          </details>
-        }
-      >
-        <input
-          className={`${inputClass} font-mono text-sm`}
-          value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-          onBlur={() => clientId !== settings.googleClientId && void saveSettings({ googleClientId: clientId.trim() })}
-          placeholder="1234-abc.apps.googleusercontent.com"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-        />
+      <Field label="Set up (free, about 5 minutes, once)">
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-stone-700 dark:text-stone-300">
+          <li>
+            Open{' '}
+            <a href="https://script.google.com/home/projects/create" target="_blank" rel="noreferrer" className="text-accent underline">
+              script.google.com → New project
+            </a>{' '}
+            with the Google account your Claude project uses.
+          </li>
+          <li>
+            Delete the code that's there and paste this script (it contains your private key):
+            <button type="button" className={`${secondaryButton} mt-1.5 flex`} disabled={!settings.inboxSecret} onClick={() => void onCopyScript()}>
+              <Icon name="copy" className="size-4" /> Copy script
+            </button>
+          </li>
+          <li>
+            Click <b>Deploy → New deployment</b>, choose type <b>Web app</b>, set <b>Execute as: Me</b> and <b>Who has access: Anyone</b>, then{' '}
+            <b>Deploy</b>.
+          </li>
+          <li>
+            Google asks you to authorize: <b>Review permissions</b> → your account → <b>Advanced → Go to … (unsafe)</b> → <b>Allow</b>. It's
+            your own script, so this is expected.
+          </li>
+          <li>Copy the <b>Web app URL</b>, paste it below, and tap Test.</li>
+        </ol>
       </Field>
 
-      <div className="flex items-center gap-3 p-4">
-        <div className="min-w-0 flex-1 text-sm">
-          {connectedUntil ? (
-            <span className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-400">
-              <Icon name="check" className="size-4" /> Connected for {Math.max(1, Math.round((connectedUntil - Date.now()) / 60_000))} min
-            </span>
-          ) : (
-            <span className="text-stone-500 dark:text-stone-400">
-              {hasClientId ? 'Not connected. Sign-in lasts about an hour.' : 'Add a Client ID to connect.'}
-            </span>
-          )}
+      <Field
+        label="Apps Script web app URL"
+        hint={urlValid ? 'Looks like https://script.google.com/macros/s/…/exec' : 'This should be the Web app URL ending in /exec.'}
+      >
+        <div className="flex gap-2">
+          <input
+            className={`${inputClass} min-w-0 flex-1 font-mono text-sm ${urlValid ? '' : 'ring-red-400'}`}
+            value={scriptUrl}
+            onChange={(e) => setScriptUrl(e.target.value)}
+            onBlur={() => void saveUrl()}
+            placeholder="https://script.google.com/macros/s/…/exec"
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+          <button type="button" className={primaryButton} disabled={!scriptUrl.trim() || !urlValid || testing} onClick={() => void onTest()}>
+            {testing ? 'Testing…' : 'Test'}
+          </button>
         </div>
-        {connectedUntil ? (
-          <button type="button" className={secondaryButton} onClick={revokeToken}>
-            Disconnect
-          </button>
-        ) : (
-          <button type="button" className={primaryButton} disabled={!hasClientId} onClick={() => void connectGoogle(settings.googleClientId)}>
-            Connect Google
-          </button>
-        )}
-      </div>
+      </Field>
 
       {queued > 0 && (
         <div className="flex items-center gap-3 p-4 text-sm">
@@ -127,7 +160,7 @@ export function GoogleSettings({ settings }: { settings: Settings }) {
       />
 
       {docs.length > 0 && (
-        <Field label="Inbox docs created by this app">
+        <Field label="Inbox docs">
           <ul className="space-y-1 text-sm">
             {docs.map(([title, id]) => (
               <li key={id}>
@@ -139,7 +172,67 @@ export function GoogleSettings({ settings }: { settings: Settings }) {
           </ul>
         </Field>
       )}
+
+      <AdvancedGoogleSettings settings={settings} />
     </Section>
+  )
+}
+
+/** The original route: your own Google Cloud OAuth client. Only used when no Apps Script URL is set. */
+function AdvancedGoogleSettings({ settings }: { settings: Settings }) {
+  const connectedUntil = useGoogleConnection()
+  const [clientId, setClientId] = useState(settings.googleClientId)
+  const hasClientId = settings.googleClientId.trim().length > 0
+  const active = hasClientId && !usesAppsScript(settings)
+
+  useEffect(() => {
+    // Load Google's script ahead of the tap so the sign-in popup isn't blocked.
+    if (active) loadGoogleIdentity().catch(() => {})
+  }, [active])
+
+  return (
+    <details className="p-4 text-sm" open={active}>
+      <summary className="cursor-pointer font-medium">Advanced: use a Google Cloud OAuth client instead</summary>
+      <div className="mt-3 space-y-3">
+        <p className="text-xs text-stone-500 dark:text-stone-400">
+          Needs a Google Cloud project with the Docs API enabled (see SETUP.md). Ignored while an Apps Script URL is set. Sign-in lasts about an
+          hour.
+        </p>
+        <input
+          className={`${inputClass} font-mono text-sm`}
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+          onBlur={() => clientId !== settings.googleClientId && void saveSettings({ googleClientId: clientId.trim() })}
+          placeholder="OAuth Client ID (…apps.googleusercontent.com)"
+          aria-label="OAuth Client ID"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+        {active && (
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              {connectedUntil ? (
+                <span className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-400">
+                  <Icon name="check" className="size-4" /> Connected for {Math.max(1, Math.round((connectedUntil - Date.now()) / 60_000))} min
+                </span>
+              ) : (
+                <span className="text-stone-500 dark:text-stone-400">Not connected.</span>
+              )}
+            </div>
+            {connectedUntil ? (
+              <button type="button" className={secondaryButton} onClick={revokeToken}>
+                Disconnect
+              </button>
+            ) : (
+              <button type="button" className={primaryButton} onClick={() => void connectGoogle(settings.googleClientId)}>
+                Connect Google
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </details>
   )
 }
 

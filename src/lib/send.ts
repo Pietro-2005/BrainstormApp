@@ -3,6 +3,7 @@ import { db, updateNote, type Note } from '../db/db'
 import { getSettings, saveSettings, type Settings } from '../db/settings'
 import { renderNote } from './template'
 import { GoogleApiError, appendToDoc, clearToken, createDoc, currentToken, onTokenChange } from './google'
+import { ScriptError, postToScript, type ScriptResult } from './appsScript'
 import { showToast } from './toast'
 
 const MAX_ATTEMPTS = 3
@@ -101,8 +102,10 @@ class SendQueue {
           this.set({ offline: true, sending: false })
           break
         }
-        const token = currentToken()
-        if (!token) {
+        const settings = await getSettings()
+        const viaScript = usesAppsScript(settings)
+        const token = viaScript ? null : currentToken()
+        if (!viaScript && !token) {
           this.set({ needsAuth: true, offline: false, sending: false })
           break
         }
@@ -113,9 +116,12 @@ class SendQueue {
         }
         this.set({ sending: true, needsAuth: false, offline: false })
         try {
-          const settings = await getSettings()
-          const docId = await this.ensureDoc(token, settings)
-          await appendToDoc(token, docId, inboxEntry(settings.template, note))
+          if (viaScript) {
+            await this.sendViaScript(settings, inboxEntry(settings.template, note))
+          } else {
+            const docId = await this.ensureDoc(token!, settings)
+            await appendToDoc(token!, docId, inboxEntry(settings.template, note))
+          }
           await db.transaction('rw', db.sendQueue, db.notes, async () => {
             await db.sendQueue.delete(item.id!)
             await updateNote(note.id, { status: 'sent', sentAt: Date.now(), sendPending: false })
@@ -127,13 +133,13 @@ class SendQueue {
             this.set({ needsAuth: true, sending: false })
             break
           }
-          if (!(err instanceof GoogleApiError)) {
+          if (!(err instanceof GoogleApiError || err instanceof ScriptError)) {
             // fetch() failed: flaky network. Try again shortly without counting it against the note.
             this.set({ offline: !navigator.onLine, sending: false, error: 'Network error while sending; retrying.' })
             this.retryTimer = window.setTimeout(() => void this.flush(), RETRY_MS)
             break
           }
-          if (err.status === 404) {
+          if (err instanceof GoogleApiError && err.status === 404) {
             // The inbox doc was deleted (or isn't visible to this app any more): make a new one.
             const settings = await getSettings()
             const docs = { ...settings.inboxDocs }
@@ -151,7 +157,7 @@ class SendQueue {
           }
           await db.sendQueue.update(item.id!, { attempts, lastError: err.message })
           this.set({ error: friendlyError(err), sending: false })
-          if (err.status === 404) continue
+          if (err instanceof GoogleApiError && err.status === 404) continue
           this.retryTimer = window.setTimeout(() => void this.flush(), RETRY_MS)
           break
         }
@@ -161,6 +167,28 @@ class SendQueue {
       if (this.again) void this.flush()
       else if (this.state.sending) this.set({ sending: false })
     }
+  }
+
+  /** Apps Script route: the script finds or creates the doc by title and appends the text. */
+  private async sendViaScript(settings: Settings, text: string): Promise<ScriptResult> {
+    const title = inboxTitle(settings)
+    const result = await postToScript(settings.appsScriptUrl, { secret: settings.inboxSecret, title, intro: inboxIntro(title), text })
+    const docs = (await getSettings()).inboxDocs
+    if (docs[title] !== result.docId) await saveSettings({ inboxDocs: { ...docs, [title]: result.docId } })
+    if (result.created)
+      showToast(
+        {
+          tone: 'info',
+          message: `Created “${title}” in your Google Drive. Add it to your Claude project once: Project → Files → + → Google Drive.`,
+        },
+        12_000,
+      )
+    return result
+  }
+
+  /** Settings "Test connection": creates the inbox doc if needed, appends nothing. */
+  async testScript(): Promise<ScriptResult> {
+    return this.sendViaScript(await getSettings(), '')
   }
 
   private async ensureDoc(token: string, settings: Settings): Promise<string> {
@@ -180,7 +208,12 @@ class SendQueue {
   }
 }
 
-export function friendlyError(err: GoogleApiError): string {
+export function usesAppsScript(settings: Pick<Settings, 'appsScriptUrl'>): boolean {
+  return settings.appsScriptUrl.trim().length > 0
+}
+
+export function friendlyError(err: GoogleApiError | ScriptError): string {
+  if (err instanceof ScriptError) return err.message
   if (err.status === 403)
     return /has not been used|disabled|accessNotConfigured/i.test(err.message)
       ? 'the Google Docs API is not enabled in your Google Cloud project.'

@@ -1,6 +1,6 @@
 # Setup
 
-Three one-time jobs: publish the site, connect Google (for the inbox doc), and add the doc to your Claude project.
+Three one-time jobs: publish the site, set up the Google Doc inbox, and add the doc to your Claude project.
 
 ## 1. Publish on GitHub Pages
 
@@ -10,32 +10,30 @@ Three one-time jobs: publish the site, connect Google (for the inbox doc), and a
 
 The repo must be public for free GitHub Pages.
 
-## 2. Google Doc inbox (about 10 minutes, free)
+## 2. Google Doc inbox (free, about 5 minutes)
 
-You create a Google Cloud "OAuth client" so the app can create and append to one Google Doc in your Drive. It uses the `drive.file` scope: the app can only see files it created itself.
+The app sends each note to a small **Google Apps Script** that you publish from your own Google account, and the script appends it to a Google Doc in your Drive. Apps Script comes with every Gmail account. You don't need a Google Cloud project, billing or an OAuth client, and nothing expires.
 
-1. Open <https://console.cloud.google.com/> and sign in with the Google account whose Drive should hold the inbox.
-2. Project picker (top left) → **New project** → name it `Voice Notes` → **Create**, then make sure it's selected. No billing account is needed.
-3. **APIs & Services → Library** → search **Google Docs API** → **Enable**.
-4. **Google Auth Platform** (older consoles call it **OAuth consent screen**) → **Get started**:
-   - App name `Voice Notes`, your email as support email → Next.
-   - Audience: **External** → Next. Contact email → Next. Agree → **Create**.
-5. **Audience → Test users → Add users** → add your own Gmail address → Save. Leave the publishing status on **Testing**; only test users can sign in, which is what you want.
-6. **Clients → Create client** (or **Credentials → Create credentials → OAuth client ID**):
-   - Application type: **Web application**, name `Voice Notes web`.
-   - **Authorized JavaScript origins** → add both:
-     - your site's origin, with no path: `https://pietro-2005.github.io`
-     - `http://localhost:5173` (for local development)
-   - No redirect URIs are needed. → **Create**.
-7. Copy the **Client ID** (ends in `.apps.googleusercontent.com`). It is not a secret.
-8. In the app: **Settings → Google Doc inbox → OAuth Client ID** → paste → tap **Connect Google**.
-   - Google shows "Google hasn't verified this app" because it's your private test app: tap **Continue**.
-   - Allow "See, edit, create and delete only the specific Google Drive files you use with this app".
-9. Open any note → **Send to inbox doc**. The first send creates **Voice Notes Inbox** in your Drive (the app shows a link under Settings).
+1. Sign in to Google with the account your Claude project uses for Google Drive.
+2. In the app: **Settings → Google Doc inbox → Copy script**. The script includes a private key unique to your install, so nobody else who finds the URL can write to your doc.
+3. Open <https://script.google.com> → **New project**. Delete the code in the editor, paste the script, and save (Ctrl/Cmd+S).
+4. **Deploy → New deployment** → gear icon → **Web app**:
+   - Execute as: **Me**
+   - Who has access: **Anyone**. "Anyone" lets the app reach the script without a sign-in; the private key protects it.
+   - **Deploy**.
+5. Google asks for permission: **Authorize access** → pick your account → **Advanced → Go to Untitled project (unsafe)** → **Allow**. The warning appears because the script is yours and unpublished; it can only touch Google Docs in your own account.
+6. Copy the **Web app URL** (`https://script.google.com/macros/s/…/exec`), paste it into the app's **Apps Script web app URL**, and tap **Test**. "Connected" means it works, and **Voice Notes Inbox** now exists in your Drive.
 
-Sign-in lasts about an hour; after that, sending asks you to tap **Connect** again. Notes sent while offline or signed out wait in a queue and go out once you're back.
+If you edit the script later, use **Deploy → Manage deployments → Edit → Version: New version**, so the URL stays the same.
 
-If a send fails with "the Google Docs API is not enabled", repeat step 3 in the same Cloud project as the client ID. If the popup says `origin_mismatch`, the origin in step 6 doesn't exactly match the site's address (no trailing slash, no `/BrainstormApp`).
+Troubleshooting:
+- **"answered with a web page instead of data"**: the deployment's access isn't **Anyone**, or Execute as isn't **Me**.
+- **"Wrong secret"**: the pasted script came from a different install or browser. Copy it again from this app and redeploy.
+- **"Could not reach the script"**: check the URL ends in `/exec` and you're online.
+
+### Alternative: your own Google Cloud OAuth client
+
+This only works if your Google Cloud account can create projects. Express-mode accounts whose trial has ended can't. If yours can: create a project, enable the **Google Docs API**, set up **Google Auth Platform** (External, Testing, your Gmail as test user), and create a **Web application** client with JavaScript origins `https://pietro-2005.github.io` and `http://localhost:5173`. Then paste the Client ID under **Settings → Google Doc inbox → Advanced** and tap **Connect Google**. The Apps Script URL takes priority when both are set.
 
 ## 3. Add the inbox doc to your Claude project
 

@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import type { Note } from '../db/db'
 import type { Settings } from '../db/settings'
 import { currentToken, loadGoogleIdentity } from '../lib/google'
-import { sendQueue, useSendState } from '../lib/send'
+import { sendQueue, usesAppsScript, useSendState } from '../lib/send'
 import { copyText, downloadBlob } from '../lib/files'
 import { noteFilename, renderNote } from '../lib/template'
 import { showToast } from '../lib/toast'
@@ -15,18 +15,19 @@ import { primaryButton, secondaryButton } from './Form'
 export function SendActions({ note, settings, disabled }: { note: Note; settings: Settings; disabled: boolean }) {
   const send = useSendState()
   useGoogleConnection() // re-render when the token changes
-  const hasGoogle = settings.googleClientId.trim().length > 0
+  const viaScript = usesAppsScript(settings)
+  const hasGoogle = viaScript || settings.googleClientId.trim().length > 0
   const projectUrl = PROJECT_URL_RE.test(settings.projectUrl) ? settings.projectUrl : ''
   const canShare = typeof navigator.share === 'function'
   const markdown = () => renderNote(settings.template, note)
 
   useEffect(() => {
-    if (hasGoogle) loadGoogleIdentity().catch(() => {})
-  }, [hasGoogle])
+    if (hasGoogle && !viaScript) loadGoogleIdentity().catch(() => {})
+  }, [hasGoogle, viaScript])
 
   const onSend = async () => {
-    // Offline: queue now, it goes out when the connection is back.
-    if (!currentToken() && navigator.onLine && !(await connectGoogle(settings.googleClientId))) return
+    // OAuth route only: sign in first. Offline, just queue; it goes out when the connection is back.
+    if (!viaScript && !currentToken() && navigator.onLine && !(await connectGoogle(settings.googleClientId))) return
     await sendQueue.enqueue(note.id)
   }
 

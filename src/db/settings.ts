@@ -14,6 +14,11 @@ export interface Settings {
   language: string
   /** Run the Whisper encoder on WebGPU when the device has it. */
   useGpu: boolean
+  /** Deployed Apps Script web app that appends notes to the inbox doc (the free, no-Cloud way). */
+  appsScriptUrl: string
+  /** Shared secret embedded in the user's Apps Script so only this app can write to the doc. */
+  inboxSecret: string
+  /** OAuth client for the advanced Google Cloud route. */
   googleClientId: string
   inboxName: string
   monthlyInbox: boolean
@@ -28,6 +33,8 @@ export const DEFAULT_SETTINGS: Settings = {
   model: isMobile ? 'base' : 'small',
   language: 'auto',
   useGpu: true,
+  appsScriptUrl: '',
+  inboxSecret: '',
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '',
   inboxName: 'Voice Notes Inbox',
   monthlyInbox: false,
