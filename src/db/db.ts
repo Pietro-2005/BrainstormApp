@@ -38,6 +38,8 @@ export interface Note {
   transcribeAttempts: number
   model?: string
   language?: string
+  /** When the current transcript was produced; editors reset when it changes. */
+  transcribedAt?: number
   sentAt?: number
   /** True while a Google Doc send is queued for this note. */
   sendPending?: boolean

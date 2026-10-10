@@ -166,12 +166,28 @@ export function windowAudio(samples: Float32Array, window: Window): Float32Array
   return out
 }
 
-/** Map a time (seconds) inside a window back to seconds in the original audio. */
-export function toOriginalTime(window: Window, seconds: number, sampleRate: number): number {
+/**
+ * Map a time (seconds) inside a window back to seconds in the original audio.
+ * An end time that lands in the silence padding at the start of a later span really
+ * belongs to the speech before the cut, so it maps to the end of the previous span;
+ * otherwise a line would seem to last through the whole removed pause.
+ */
+export function toOriginalTime(
+  window: Window,
+  seconds: number,
+  sampleRate: number,
+  edge: 'start' | 'end' = 'start',
+  padSeconds = DEFAULT_PLAN.padSeconds,
+): number {
   let target = Math.max(0, Math.round(seconds * sampleRate))
-  for (const span of window.spans) {
+  const pad = Math.round(padSeconds * sampleRate)
+  for (let i = 0; i < window.spans.length; i++) {
+    const span = window.spans[i]
     const len = span.end - span.start
-    if (target <= len) return (span.start + target) / sampleRate
+    if (target <= len) {
+      if (edge === 'end' && i > 0 && target <= pad) return window.spans[i - 1].end / sampleRate
+      return (span.start + target) / sampleRate
+    }
     target -= len
   }
   const last = window.spans[window.spans.length - 1]

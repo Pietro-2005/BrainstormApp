@@ -138,7 +138,7 @@ async function transcribeWindows(
       const end = Math.min(chunk.timestamp[1] ?? seconds, seconds)
       segments.push({
         start: toOriginalTime(window, start, SAMPLE_RATE),
-        end: toOriginalTime(window, Math.max(start, end), SAMPLE_RATE),
+        end: toOriginalTime(window, Math.max(start, end), SAMPLE_RATE, 'end'),
         text: chunk.text.trim(),
       })
     }

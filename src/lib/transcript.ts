@@ -59,9 +59,13 @@ export function cleanSegments(segments: Segment[]): Segment[] {
 /** Plain text from segments, with a paragraph break wherever the speaker paused for a while. */
 export function segmentsToText(segments: Segment[], paragraphGapSeconds = 2.5): string {
   let text = ''
-  segments.forEach((seg, i) => {
-    if (i > 0) text += seg.start - segments[i - 1].end >= paragraphGapSeconds ? '\n\n' : ' '
-    text += seg.text
-  })
-  return text.trim()
+  let previous: Segment | null = null
+  for (const seg of segments) {
+    const line = seg.text.trim()
+    if (!line) continue // a line the user cleared
+    if (previous) text += seg.start - previous.end >= paragraphGapSeconds ? '\n\n' : ' '
+    text += line
+    previous = seg
+  }
+  return text
 }

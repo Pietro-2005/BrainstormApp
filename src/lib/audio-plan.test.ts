@@ -73,5 +73,8 @@ describe('planWindows', () => {
     // 3.3 s of the first span, then 1 s into the second span (which starts at 7.7 s).
     expect(toOriginalTime(w, 4.3, SR)).toBeCloseTo(8.7, 1)
     expect(toOriginalTime(w, 999, SR)).toBeCloseTo(11, 1)
+    // An end time just inside the next span's padding belongs to the speech before the cut.
+    expect(toOriginalTime(w, 3.4, SR, 'end')).toBeCloseTo(3.3, 1)
+    expect(toOriginalTime(w, 3.4, SR, 'start')).toBeCloseTo(7.8, 1)
   })
 })

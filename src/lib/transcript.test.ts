@@ -29,4 +29,14 @@ describe('transcript cleanup', () => {
       ]),
     ).toBe('One. Two.\n\nThree.')
   })
+
+  it('skips lines the user emptied', () => {
+    expect(
+      segmentsToText([
+        { start: 0, end: 1, text: 'Keep.' },
+        { start: 1, end: 2, text: '  ' },
+        { start: 2, end: 3, text: 'This.' },
+      ]),
+    ).toBe('Keep. This.')
+  })
 })

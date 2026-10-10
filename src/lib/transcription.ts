@@ -265,6 +265,7 @@ class TranscriptionService {
         text,
         language: result.language ?? undefined,
         model: `whisper-${model}`,
+        transcribedAt: Date.now(),
         title: fresh.titleEdited ? fresh.title : titleFromText(text) || fresh.title,
         requestedModel: undefined,
         statusBeforeRetry: undefined,
