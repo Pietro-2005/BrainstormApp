@@ -109,6 +109,42 @@ class SendQueue {
           this.set({ needsAuth: true, offline: false, sending: false })
           break
         }
+        if (item.action === 'delete') {
+          // The note is already gone from the app; remove its text from the doc.
+          if (!viaScript) {
+            await db.sendQueue.delete(item.id!)
+            continue
+          }
+          this.set({ sending: true, needsAuth: false, offline: false })
+          try {
+            const result = await postToScript(settings.appsScriptUrl, settings.inboxSecret, { action: 'delete', noteId: item.noteId, docId: item.docId })
+            await db.sendQueue.delete(item.id!)
+            await this.rememberVersion(result.version)
+            showToast(
+              result.removed
+                ? { tone: 'success', message: 'Removed the deleted note from your Google Doc inbox.' }
+                : { tone: 'info', message: 'The deleted note wasn’t found in the inbox doc (notes sent before the script update can’t be removed automatically). Remove it there by hand if needed.' },
+            )
+            this.set({ error: null })
+            continue
+          } catch (err) {
+            if (!(err instanceof ScriptError)) {
+              this.set({ offline: !navigator.onLine, sending: false, error: 'Network error; retrying.' })
+              this.retryTimer = window.setTimeout(() => void this.flush(), RETRY_MS)
+              break
+            }
+            const attempts = item.attempts + 1
+            if (attempts >= MAX_ATTEMPTS || /out of date/.test(err.message)) {
+              await db.sendQueue.delete(item.id!)
+              showToast({ tone: 'error', message: `Could not remove the deleted note from the doc: ${err.message}` }, 12_000)
+              continue
+            }
+            await db.sendQueue.update(item.id!, { attempts, lastError: err.message })
+            this.set({ error: err.message, sending: false })
+            this.retryTimer = window.setTimeout(() => void this.flush(), RETRY_MS)
+            break
+          }
+        }
         const note = await db.notes.get(item.noteId)
         if (!note) {
           await db.sendQueue.delete(item.id!)
@@ -116,15 +152,16 @@ class SendQueue {
         }
         this.set({ sending: true, needsAuth: false, offline: false })
         try {
+          let sentDocId: string | undefined
           if (viaScript) {
-            await this.sendViaScript(settings, inboxEntry(settings.template, note))
+            sentDocId = (await this.sendViaScript(settings, note)).docId
           } else {
             const docId = await this.ensureDoc(token!, settings)
             await appendToDoc(token!, docId, inboxEntry(settings.template, note))
           }
           await db.transaction('rw', db.sendQueue, db.notes, async () => {
             await db.sendQueue.delete(item.id!)
-            await updateNote(note.id, { status: 'sent', sentAt: Date.now(), sendPending: false })
+            await updateNote(note.id, { status: 'sent', sentAt: Date.now(), sendPending: false, sentDocId })
           })
           this.set({ error: null })
         } catch (err) {
@@ -169,10 +206,31 @@ class SendQueue {
     }
   }
 
-  /** Apps Script route: the script finds or creates the doc by title and appends the text. */
-  private async sendViaScript(settings: Settings, text: string): Promise<ScriptResult> {
+  /** Remove a deleted note's text from the inbox doc (queued, so it also works offline). */
+  async enqueueDelete(noteId: string, docId?: string) {
+    await db.sendQueue.add({ noteId, action: 'delete', docId, createdAt: Date.now(), attempts: 0 })
+    await this.flush()
+  }
+
+  private async rememberVersion(version: number) {
+    if ((await getSettings()).scriptVersion !== version) await saveSettings({ scriptVersion: version })
+  }
+
+  /**
+   * Apps Script route: the script finds or creates the doc by title and adds the note, or
+   * replaces it in place when it was sent before (matched by note id).
+   */
+  private async sendViaScript(settings: Settings, note: Note | null): Promise<ScriptResult> {
     const title = inboxTitle(settings)
-    const result = await postToScript(settings.appsScriptUrl, { secret: settings.inboxSecret, title, intro: inboxIntro(title), text })
+    const result = await postToScript(settings.appsScriptUrl, settings.inboxSecret, {
+      action: 'upsert',
+      title,
+      intro: inboxIntro(title),
+      text: note ? inboxEntry(settings.template, note) : '',
+      noteId: note?.id,
+      docId: note?.sentDocId,
+    })
+    await this.rememberVersion(result.version)
     const docs = (await getSettings()).inboxDocs
     if (docs[title] !== result.docId) await saveSettings({ inboxDocs: { ...docs, [title]: result.docId } })
     if (result.created)
@@ -188,7 +246,7 @@ class SendQueue {
 
   /** Settings "Test connection": creates the inbox doc if needed, appends nothing. */
   async testScript(): Promise<ScriptResult> {
-    return this.sendViaScript(await getSettings(), '')
+    return this.sendViaScript(await getSettings(), null)
   }
 
   private async ensureDoc(token: string, settings: Settings): Promise<string> {

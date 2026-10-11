@@ -86,7 +86,7 @@ export function SendActions({ note, settings, disabled }: { note: Note; settings
         ) : (
           <button type="button" className={`${primaryButton} w-full py-3 text-base`} disabled={disabled} onClick={() => void onSend()}>
             <Icon name="send" className="size-5" />
-            {note.status === 'sent' ? 'Send again to inbox doc' : 'Send to inbox doc'}
+            {note.status !== 'sent' ? 'Send to inbox doc' : viaScript && note.sentDocId ? 'Update in inbox doc' : 'Send again to inbox doc'}
           </button>
         )
       ) : (

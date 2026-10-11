@@ -18,6 +18,8 @@ export interface Settings {
   appsScriptUrl: string
   /** Shared secret embedded in the user's Apps Script so only this app can write to the doc. */
   inboxSecret: string
+  /** Version reported by the deployed script (0 = not checked yet). */
+  scriptVersion: number
   /** OAuth client for the advanced Google Cloud route. */
   googleClientId: string
   inboxName: string
@@ -35,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
   useGpu: true,
   appsScriptUrl: '',
   inboxSecret: '',
+  scriptVersion: 0,
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '',
   inboxName: 'Voice Notes Inbox',
   monthlyInbox: false,

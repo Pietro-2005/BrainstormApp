@@ -18,6 +18,7 @@ import { useAutosave } from '../lib/useAutosave'
 import { noteFilename } from '../lib/template'
 import { downloadBlob } from '../lib/files'
 import { SendActions } from '../components/SendActions'
+import { sendQueue, usesAppsScript } from '../lib/send'
 import { languageName } from '../lib/languages'
 import { allTags } from '../lib/search'
 import { showToast } from '../lib/toast'
@@ -90,8 +91,13 @@ function NoteEditor({ note }: { note: Note }) {
     showToast({ tone: 'success', message: 'Audio deleted.' })
   }
   const onDeleteNote = async () => {
-    if (!confirm('Delete this note and its audio? This cannot be undone.')) return
+    const inDoc = !!note.sentAt && !!settings && usesAppsScript(settings)
+    const question = inDoc
+      ? 'Delete this note and its audio? It will also be removed from your Google Doc inbox. This cannot be undone.'
+      : 'Delete this note and its audio? This cannot be undone.'
+    if (!confirm(question)) return
     await deleteNote(note.id)
+    if (inDoc) void sendQueue.enqueueDelete(note.id, note.sentDocId)
     navigate('/notes', { replace: true })
   }
 

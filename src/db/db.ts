@@ -41,6 +41,8 @@ export interface Note {
   /** When the current transcript was produced; editors reset when it changes. */
   transcribedAt?: number
   sentAt?: number
+  /** The inbox doc this note was sent to, so re-sends and deletes find it. */
+  sentDocId?: string
   /** True while a Google Doc send is queued for this note. */
   sendPending?: boolean
 }
@@ -61,6 +63,9 @@ export interface SettingRow {
 export interface SendQueueItem {
   id?: number
   noteId: string
+  /** 'send' (default) appends or updates the note; 'delete' removes it from the doc after the note was deleted. */
+  action?: 'send' | 'delete'
+  docId?: string
   createdAt: number
   attempts: number
   lastError?: string

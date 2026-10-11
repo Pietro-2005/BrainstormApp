@@ -24,7 +24,9 @@ The app sends each note to a small **Google Apps Script** that you publish from 
 5. Google asks for permission: **Authorize access** → pick your account → **Advanced → Go to Untitled project (unsafe)** → **Allow**. The warning appears because the script is yours and unpublished; it can only touch Google Docs in your own account.
 6. Copy the **Web app URL** (`https://script.google.com/macros/s/…/exec`), paste it into the app's **Apps Script web app URL**, and tap **Test**. "Connected" means it works, and **Voice Notes Inbox** now exists in your Drive.
 
-If you edit the script later, use **Deploy → Manage deployments → Edit → Version: New version**, so the URL stays the same.
+The doc stays in step with the app. Each note is wrapped in an invisible named range: sending a note again after editing it updates it in place, and deleting a sent note in the app removes it from the doc. Offline, both wait in the queue. Notes sent with an older script have no named range, so remove those from the doc by hand.
+
+**Updating the script.** When the app shows "Update your Apps Script", tap **Copy script**, paste it over the old code in Apps Script, and save. Then go to **Deploy → Manage deployments → ✏️ → Version: New version → Deploy**. This keeps the same URL, so nothing changes in the app. Creating a *new deployment* instead gives a new URL, which you'd have to paste into the app again.
 
 Troubleshooting:
 - **"answered with a web page instead of data"**: the deployment's access isn't **Anyone**, or Execute as isn't **Me**.

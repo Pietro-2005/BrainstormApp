@@ -4,7 +4,8 @@ import { db } from '../db/db'
 import { DEFAULT_TEMPLATE, saveSettings, type Settings } from '../db/settings'
 import { docUrl, loadGoogleIdentity, onTokenChange, requestToken, revokeToken, tokenExpiresAt } from '../lib/google'
 import { inboxTitle, sendQueue, usesAppsScript, useSendState } from '../lib/send'
-import { SCRIPT_URL_RE, ScriptError, newSecret, scriptSource } from '../lib/appsScript'
+import { SCRIPT_URL_RE, SCRIPT_VERSION, ScriptError, newSecret, scriptSource, scriptVersionAt } from '../lib/appsScript'
+import { Banner } from './Banner'
 import { copyText } from '../lib/files'
 import { renderNote } from '../lib/template'
 import { showToast } from '../lib/toast'
@@ -42,6 +43,20 @@ export function GoogleSettings({ settings }: { settings: Settings }) {
     // Every install gets its own secret, embedded in the script the user copies.
     if (!settings.inboxSecret) void saveSettings({ inboxSecret: newSecret() })
   }, [settings.inboxSecret])
+
+  useEffect(() => {
+    // Check which script version is deployed, so an outdated one can be flagged.
+    if (!settings.appsScriptUrl || !navigator.onLine) return
+    let cancelled = false
+    void scriptVersionAt(settings.appsScriptUrl).then((v) => {
+      if (!cancelled && v !== null && v !== settings.scriptVersion) void saveSettings({ scriptVersion: v })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [settings.appsScriptUrl, settings.scriptVersion])
+
+  const outdated = !!settings.appsScriptUrl && settings.scriptVersion > 0 && settings.scriptVersion < SCRIPT_VERSION
 
   const onCopyScript = async () => {
     try {
@@ -82,6 +97,25 @@ export function GoogleSettings({ settings }: { settings: Settings }) {
       title="Google Doc inbox"
       description="Each sent note is appended to one Google Doc in your Drive. Add that doc to your Claude project once and the project stays in sync."
     >
+      {outdated && (
+        <div className="p-4">
+          <Banner
+            tone="warning"
+            message={
+              <>
+                <b>Update your Apps Script</b> (one minute) so deleting a note also removes it from the doc, and re-sending updates it instead of adding a copy: tap{' '}
+                <b>Copy script</b>, paste it over the old code in Apps Script and save, then <b>Deploy → Manage deployments → ✏️ → Version: New version → Deploy</b>.
+              </>
+            }
+            action={
+              <button type="button" className={secondaryButton} onClick={() => void onCopyScript()}>
+                <Icon name="copy" className="size-4" /> Copy script
+              </button>
+            }
+          />
+        </div>
+      )}
+
       <Field label="Set up (free, about 5 minutes, once)">
         <ol className="list-decimal space-y-2 pl-5 text-sm text-stone-700 dark:text-stone-300">
           <li>
