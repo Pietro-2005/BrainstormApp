@@ -1,11 +1,12 @@
 import { liveQuery } from 'dexie'
 import { useSyncExternalStore } from 'react'
 import { db, getNoteAudio, updateNote, type ModelSize, type Note, type Segment } from '../db/db'
-import { getSettings } from '../db/settings'
+import { getSettings, saveSettings } from '../db/settings'
 import type { Engine, WorkerRequest, WorkerResponse } from '../workers/protocol'
 import { decodeToMono16k, WHISPER_SAMPLE_RATE } from './decode'
 import { cleanSegments, segmentsToText } from './transcript'
 import { titleFromText } from './format'
+import { showToast } from './toast'
 
 export interface EngineState {
   model: ModelSize | null
@@ -21,10 +22,47 @@ export interface EngineState {
 
 class TranscriptionError extends Error {
   readonly network: boolean
-  constructor(message: string, network = false) {
+  /** Settings were made safer after a crash; queue the note again instead of failing it. */
+  readonly retry: boolean
+  constructor(message: string, network = false, retry = false) {
     super(message)
     this.network = network
+    this.retry = retry
   }
+}
+
+/**
+ * Heavy work in progress, kept in localStorage (written synchronously) so that if the tab is
+ * killed for memory, the next launch knows what was running and can pick lighter settings.
+ */
+interface HeavyWork {
+  kind: 'load' | 'job'
+  model: ModelSize
+  engine: Engine | null
+  noteId: string | null
+  /** The page was hidden at some point: the OS may have closed it, which is not our crash. */
+  hidden: boolean
+}
+const WORK_KEY = 'voice-notes:heavy-work'
+
+function readWork(): HeavyWork | null {
+  try {
+    return JSON.parse(localStorage.getItem(WORK_KEY) ?? 'null') as HeavyWork | null
+  } catch {
+    return null
+  }
+}
+function writeWork(work: HeavyWork | null) {
+  try {
+    if (work) localStorage.setItem(WORK_KEY, JSON.stringify(work))
+    else localStorage.removeItem(WORK_KEY)
+  } catch {
+    // Storage blocked: crash recovery falls back to the attempt counter.
+  }
+}
+function updateWork(patch: Partial<HeavyWork>) {
+  const work = readWork()
+  if (work) writeWork({ ...work, ...patch })
 }
 
 interface Job {
@@ -78,6 +116,9 @@ class TranscriptionService {
         void this.drain()
       }
     })
+    const markHidden = () => document.visibilityState === 'hidden' && updateWork({ hidden: true })
+    document.addEventListener('visibilitychange', markHidden)
+    window.addEventListener('pagehide', () => updateWork({ hidden: true }))
     // Picks up notes left mid-transcription by a reload or crash, even if nothing is queued.
     void this.drain()
   }
@@ -86,6 +127,7 @@ class TranscriptionService {
   async preload(model: ModelSize) {
     const settings = await getSettings()
     this.set({ error: null })
+    writeWork({ kind: 'load', model, engine: null, noteId: null, hidden: false })
     this.post({ type: 'load', model, allowGpu: settings.useGpu })
   }
 
@@ -100,11 +142,16 @@ class TranscriptionService {
       const message = offline
         ? 'No connection: the speech model needs to download once.'
         : 'The speech model crashed, most likely out of memory.'
-      for (const job of this.jobs.values()) job.reject(new TranscriptionError(message, offline))
-      this.jobs.clear()
+      const work = readWork()
+      writeWork(null)
       worker.terminate()
       this.worker = null
       this.set({ status: 'error', error: message, download: null })
+      void (async () => {
+        const safer = !offline && work ? await this.makeSafer(work) : false
+        for (const job of this.jobs.values()) job.reject(new TranscriptionError(message, offline, safer))
+        this.jobs.clear()
+      })()
     }
     this.worker = worker
     return worker
@@ -117,6 +164,8 @@ class TranscriptionService {
   private onMessage(msg: WorkerResponse) {
     switch (msg.type) {
       case 'model':
+        updateWork({ engine: msg.engine })
+        if (msg.status === 'ready' && readWork()?.kind === 'load') writeWork(null)
         this.set({
           model: msg.model,
           engine: msg.engine,
@@ -138,6 +187,7 @@ class TranscriptionService {
         break
       }
       case 'error': {
+        if (!msg.jobId && readWork()?.kind === 'load') writeWork(null)
         if (msg.jobId) {
           const job = this.jobs.get(msg.jobId)
           this.jobs.delete(msg.jobId)
@@ -173,6 +223,7 @@ class TranscriptionService {
     this.drainRequested = false
     try {
       const work = async () => {
+        await this.recoverFromCrash()
         await this.resetInterrupted()
         for (;;) {
           if (this.state.waitingForNetwork) break
@@ -187,6 +238,33 @@ class TranscriptionService {
       this.draining = false
       if (this.drainRequested) void this.drain()
     }
+  }
+
+  /** If the last session died during heavy work, switch to lighter settings and retry the note. */
+  private async recoverFromCrash() {
+    const work = readWork()
+    writeWork(null)
+    if (!work || work.hidden) return
+    if ((await this.makeSafer(work)) && work.noteId) await updateNote(work.noteId, { transcribeAttempts: 0, requestedModel: undefined })
+  }
+
+  /** GPU → CPU first, then small → base. Returns false when nothing lighter is left. */
+  private async makeSafer(work: HeavyWork): Promise<boolean> {
+    const settings = await getSettings()
+    if (work.engine === 'gpu' && settings.useGpu) {
+      await saveSettings({ useGpu: false })
+      showToast(
+        { tone: 'warning', message: 'Transcription crashed on the GPU (probably out of memory), so it now runs on the CPU. Retrying. You can change this in Settings → Transcription.' },
+        12_000,
+      )
+      return true
+    }
+    if (work.model === 'small') {
+      if (settings.model === 'small') await saveSettings({ model: 'base' })
+      showToast({ tone: 'warning', message: 'whisper-small ran out of memory, so the app switched to whisper-base. Retrying.' }, 12_000)
+      return true
+    }
+    return false
   }
 
   /** Notes stuck in "transcribing" were cut off by a reload or crash; queue them again, but not forever. */
@@ -231,12 +309,14 @@ class TranscriptionService {
       transcribeAttempts: note.transcribeAttempts + 1,
     })
 
+    writeWork({ kind: 'job', model, engine: null, noteId: note.id, hidden: document.visibilityState === 'hidden' })
     let audio: Float32Array
     try {
       const blob = await getNoteAudio(note.id)
       if (!blob) throw new Error('The audio for this note has been deleted.')
       audio = await decodeToMono16k(blob)
     } catch (err) {
+      writeWork(null)
       await this.fail(note, (err as Error).message)
       return
     }
@@ -275,7 +355,10 @@ class TranscriptionService {
     } catch (err) {
       const e = err as TranscriptionError
       const fresh = (await db.notes.get(note.id)) ?? note
-      if (e.network) {
+      if (e.retry) {
+        // Lighter settings were chosen after a crash: try this note again with them.
+        await updateNote(note.id, { status: 'queued', progress: 0, transcribeAttempts: 0, requestedModel: undefined, error: undefined })
+      } else if (e.network) {
         // Model not downloaded yet and we're offline: wait for a connection, keep the note queued.
         await updateNote(note.id, {
           status: 'queued',
@@ -288,6 +371,7 @@ class TranscriptionService {
         await this.fail(fresh, e.message)
       }
     } finally {
+      writeWork(null)
       this.set({ live: null })
     }
   }
