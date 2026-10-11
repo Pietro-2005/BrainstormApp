@@ -28,7 +28,9 @@ If you edit the script later, use **Deploy → Manage deployments → Edit → V
 
 Troubleshooting:
 - **"answered with a web page instead of data"**: the deployment's access isn't **Anyone**, or Execute as isn't **Me**.
-- **"Wrong secret"**: the pasted script came from a different install or browser. Copy it again from this app and redeploy.
+- **"Wrong secret"**: the deployed script's key differs from this copy of the app. Each copy (phone app, phone browser, computer) has its own key, and on iPhone the home-screen app and Safari are separate. Either:
+  - in the app where you'll use it, tap **Copy script**, paste it over the code in Apps Script, save, then **Deploy → Manage deployments → ✏️ → Version: New version → Deploy**; or
+  - copy the value of `SECRET` from the script and paste it into **Settings → Secret key**. Do this on every device you send from.
 - **"Could not reach the script"**: check the URL ends in `/exec` and you're online.
 
 ### Alternative: your own Google Cloud OAuth client

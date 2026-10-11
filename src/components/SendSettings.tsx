@@ -131,6 +131,13 @@ export function GoogleSettings({ settings }: { settings: Settings }) {
         </div>
       </Field>
 
+      <Field
+        label="Secret key"
+        hint="Must match SECRET in your script. Using the app on another device or browser too? Enter the same key there, or each copy of the app needs its own script."
+      >
+        <SecretInput value={settings.inboxSecret} />
+      </Field>
+
       {queued > 0 && (
         <div className="flex items-center gap-3 p-4 text-sm">
           <div className="min-w-0 flex-1">
@@ -175,6 +182,28 @@ export function GoogleSettings({ settings }: { settings: Settings }) {
 
       <AdvancedGoogleSettings settings={settings} />
     </Section>
+  )
+}
+
+function SecretInput({ value }: { value: string }) {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => setDraft(value), [value])
+  return (
+    <input
+      className={`${inputClass} font-mono text-sm`}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        // The script compares this exactly, so strip stray quotes/spaces from a paste.
+        const next = draft.trim().replace(/^['"]|['"];?$/g, '')
+        if (next && next !== value) void saveSettings({ inboxSecret: next })
+        else setDraft(value)
+      }}
+      aria-label="Secret key"
+      autoCapitalize="none"
+      autoCorrect="off"
+      spellCheck={false}
+    />
   )
 }
 

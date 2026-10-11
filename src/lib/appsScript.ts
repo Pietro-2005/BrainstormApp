@@ -9,6 +9,9 @@ export const SCRIPT_URL_RE = /^https:\/\/script\.google\.com\/(a\/macros\/[^/]+|
 
 export class ScriptError extends Error {}
 
+export const WRONG_SECRET =
+  'Wrong secret: the deployed script has a different key from this app. Either the script was copied on another device or browser, or an older version is still deployed. Fix: tap Copy script here, paste it over the code in Apps Script, save, then Deploy → Manage deployments → ✏️ → Version: New version → Deploy, and tap Test again. Or paste the key from the script into Secret key below.'
+
 export interface ScriptResult {
   docId: string
   docUrl: string
@@ -47,6 +50,7 @@ export async function postToScript(
         : `The script returned an error (${res.status}). Check that the web app URL is the latest deployment.`,
     )
   }
+  if (data.error?.startsWith('Wrong secret')) throw new ScriptError(WRONG_SECRET)
   if (!data.ok || !data.docId) throw new ScriptError(data.error || 'The script reported an error.')
   return { docId: data.docId, docUrl: data.docUrl ?? '', created: !!data.created }
 }
